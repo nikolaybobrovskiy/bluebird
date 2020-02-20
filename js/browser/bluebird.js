@@ -1954,9 +1954,16 @@ function finallyHandler(reasonOrValue) {
 
     if (!this.called) {
         this.called = true;
-        var ret = this.isFinallyHandler()
-            ? handler.call(promise._boundValue())
-            : handler.call(promise._boundValue(), reasonOrValue);
+        var ret;
+        var prevContext = Promise.contextManager.getContext();
+        Promise.contextManager.setContext(promise._capturedContext);
+        try {
+            ret = this.isFinallyHandler()
+                ? handler.call(promise._boundValue())
+                : handler.call(promise._boundValue(), reasonOrValue);
+        } finally {
+            Promise.contextManager.setContext(prevContext);
+        }
         if (ret === NEXT_FILTER) {
             return ret;
         } else if (ret !== undefined) {
@@ -2852,10 +2859,16 @@ function check(self, executor) {
 
 }
 
+Promise.contextManager = {
+    getContext: function() {},
+    setContext: function() {}
+};
+
 function Promise(executor) {
     if (executor !== INTERNAL) {
         check(this, executor);
     }
+    this._capturedContext = Promise.contextManager.getContext();
     this._bitField = 0;
     this._fulfillmentHandler0 = undefined;
     this._rejectionHandler0 = undefined;
@@ -3352,11 +3365,17 @@ Promise.prototype._settlePromise = function(promise, handler, receiver, value) {
             receiver.cancel();
         }
     } else if (typeof handler === "function") {
-        if (!isPromise) {
-            handler.call(receiver, value, promise);
-        } else {
-            if (asyncGuaranteed) promise._setAsyncGuaranteed();
-            this._settlePromiseFromHandler(handler, receiver, value, promise);
+        var prevContext = Promise.contextManager.getContext();
+        Promise.contextManager.setContext(!isPromise ? this._capturedContext : promise._capturedContext);
+        try {
+            if (!isPromise) {
+                handler.call(receiver, value, promise);
+            } else {
+                if (asyncGuaranteed) promise._setAsyncGuaranteed();
+                this._settlePromiseFromHandler(handler, receiver, value, promise);
+            }
+        } finally {
+            Promise.contextManager.setContext(prevContext);
         }
     } else if (receiver instanceof Proxyable) {
         if (!receiver._isResolved()) {
@@ -3382,10 +3401,16 @@ Promise.prototype._settlePromiseLateCancellationObserver = function(ctx) {
     var receiver = ctx.receiver;
     var value = ctx.value;
     if (typeof handler === "function") {
-        if (!(promise instanceof Promise)) {
-            handler.call(receiver, value, promise);
-        } else {
-            this._settlePromiseFromHandler(handler, receiver, value, promise);
+        var prevContext = Promise.contextManager.getContext();
+        Promise.contextManager.setContext(!(promise instanceof Promise) ? this._capturedContext :  promise._capturedContext);
+        try {
+            if (!(promise instanceof Promise)) {
+                handler.call(receiver, value, promise);
+            } else {
+                this._settlePromiseFromHandler(handler, receiver, value, promise);
+            }
+        } finally {
+            Promise.contextManager.setContext(prevContext);
         }
     } else if (promise instanceof Promise) {
         promise._reject(value);

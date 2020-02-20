@@ -68,10 +68,16 @@ function check(self, executor) {
 
 }
 
+Promise.contextManager = {
+    getContext: function() {},
+    setContext: function() {}
+};
+
 function Promise(executor) {
     if (executor !== INTERNAL) {
         check(this, executor);
     }
+    this._capturedContext = Promise.contextManager.getContext();
     this._bitField = NO_STATE;
     this._fulfillmentHandler0 = undefined;
     this._rejectionHandler0 = undefined;
@@ -607,11 +613,17 @@ Promise.prototype._settlePromise = function(promise, handler, receiver, value) {
     } else if (typeof handler === "function") {
         //if promise is not instanceof Promise
         //it is internally smuggled data
-        if (!isPromise) {
-            handler.call(receiver, value, promise);
-        } else {
-            if (asyncGuaranteed) promise._setAsyncGuaranteed();
-            this._settlePromiseFromHandler(handler, receiver, value, promise);
+        var prevContext = Promise.contextManager.getContext();
+        Promise.contextManager.setContext(!isPromise ? this._capturedContext : promise._capturedContext);
+        try {
+            if (!isPromise) {
+                handler.call(receiver, value, promise);
+            } else {
+                if (asyncGuaranteed) promise._setAsyncGuaranteed();
+                this._settlePromiseFromHandler(handler, receiver, value, promise);
+            }
+        } finally {
+            Promise.contextManager.setContext(prevContext);
         }
     } else if (receiver instanceof Proxyable) {
         if (!receiver._isResolved()) {
@@ -637,10 +649,16 @@ Promise.prototype._settlePromiseLateCancellationObserver = function(ctx) {
     var receiver = ctx.receiver;
     var value = ctx.value;
     if (typeof handler === "function") {
-        if (!(promise instanceof Promise)) {
-            handler.call(receiver, value, promise);
-        } else {
-            this._settlePromiseFromHandler(handler, receiver, value, promise);
+        var prevContext = Promise.contextManager.getContext();
+        Promise.contextManager.setContext(!(promise instanceof Promise) ? this._capturedContext :  promise._capturedContext);
+        try {
+            if (!(promise instanceof Promise)) {
+                handler.call(receiver, value, promise);
+            } else {
+                this._settlePromiseFromHandler(handler, receiver, value, promise);
+            }
+        } finally {
+            Promise.contextManager.setContext(prevContext);
         }
     } else if (promise instanceof Promise) {
         promise._reject(value);

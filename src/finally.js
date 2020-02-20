@@ -52,9 +52,16 @@ function finallyHandler(reasonOrValue) {
 
     if (!this.called) {
         this.called = true;
-        var ret = this.isFinallyHandler()
-            ? handler.call(promise._boundValue())
-            : handler.call(promise._boundValue(), reasonOrValue);
+        var ret;
+        var prevContext = Promise.contextManager.getContext();
+        Promise.contextManager.setContext(promise._capturedContext);
+        try {
+            ret = this.isFinallyHandler()
+                ? handler.call(promise._boundValue())
+                : handler.call(promise._boundValue(), reasonOrValue);
+        } finally {
+            Promise.contextManager.setContext(prevContext);
+        }
         if (ret === NEXT_FILTER) {
             return ret;
         } else if (ret !== undefined) {
